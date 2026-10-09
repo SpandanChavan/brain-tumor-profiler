@@ -1,0 +1,30 @@
+# Deploys the API to a free Hugging Face Space (Docker SDK, CPU basic).
+# One-time setup: create the Space, then add repo secret HF_TOKEN (write) and variable HF_SPACE (e.g. user/btp-api).
+name: Deploy API to HF Spaces
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Assemble Space repo
+        run: |
+          mkdir space
+          cp -r src api space/
+          mkdir -p space/models space/assets
+          cp models/btp_model.onnx models/model_card.json space/models/
+          cp -r assets/demo space/assets/demo
+          cp api/Dockerfile space/Dockerfile
+          cp api/README.md space/README.md
+      - name: Push to Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          pip install -q huggingface_hub
+          python -c "from huggingface_hub import HfApi; HfApi().upload_folder(folder_path='space', repo_id='${HF_SPACE}', repo_type='space', token='${HF_TOKEN}')"

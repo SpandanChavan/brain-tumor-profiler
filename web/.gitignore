@@ -1,0 +1,10 @@
+node_modules
+dist
+public/models/*.onnx
+public/ort
+.env
+.env.local
+test-results
+playwright-report
+public/models/model_card.json
+e2e/fixtures/

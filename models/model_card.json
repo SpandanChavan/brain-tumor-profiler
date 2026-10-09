@@ -1,0 +1,77 @@
+{
+  "version": "v0.1-synthetic",
+  "synthetic": true,
+  "created": "2026-10-09",
+  "sha256": "fa0d409c3bd36c8af9a116318736b61b1d9e69412005a6831cb791b085b4e3a5",
+  "architecture": "MONAI FlexibleUNet, EfficientNet-B0 encoder (ImageNet-pretrained, 3->2 channel stem)",
+  "inputs": [
+    "T1ce",
+    "FLAIR"
+  ],
+  "output": "binary whole tumor (BraTS labels 1+2+4)",
+  "training_data": "Synthetic phantoms (pipeline test only)",
+  "inference": {
+    "threshold": 0.5,
+    "tta": true,
+    "min_component_voxels": 20
+  },
+  "test_metrics": {
+    "n_patients": 4,
+    "dice": {
+      "mean": 0.9673426669592248,
+      "std": 0.022689853998110333,
+      "median": 0.9622725952875466,
+      "min": 0.944825477261806,
+      "max": 1.0,
+      "n_valid": 4
+    },
+    "iou": {
+      "mean": 0.9376938594088184,
+      "std": 0.0429203186115414,
+      "median": 0.927677194680848,
+      "min": 0.8954210482735778,
+      "max": 1.0,
+      "n_valid": 4
+    },
+    "hd95_mm": {
+      "mean": 2.0206906325745546,
+      "std": 2.380506115813493,
+      "median": 1.0,
+      "min": 0.0,
+      "max": 6.082762530298219,
+      "n_valid": 4
+    },
+    "sensitivity": {
+      "mean": 0.9172976735152413,
+      "std": 0.02733550584521621,
+      "median": 0.9003908586926176,
+      "min": 0.8956435315554083,
+      "max": 0.9558586302976976,
+      "n_valid": 3
+    },
+    "precision": {
+      "mean": 0.99957684553933,
+      "std": 0.0003310873809948995,
+      "median": 0.9997226587778497,
+      "min": 0.9991186050967619,
+      "max": 0.9998892727433785,
+      "n_valid": 3
+    },
+    "volume_error": {
+      "mean": 0.08230519022554406,
+      "std": 0.027645968070225665,
+      "median": 0.0995094324572249,
+      "min": 0.043298137556826516,
+      "max": 0.10410800066258075,
+      "n_valid": 3
+    },
+    "patient_detection_sensitivity": 1.0
+  },
+  "intended_use": "Research and education only. Not a medical device.",
+  "onnx": {
+    "file": "btp_model.onnx",
+    "sha256": "0838646e014d2612012e16c140df3b463e05be439c5850a00c35848869a0e9ec",
+    "opset": 17,
+    "parity_min_dice": 1.0
+  }
+}

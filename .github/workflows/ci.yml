@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    name: Python core + API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install (CPU torch)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt
+          pip install -e .
+      - name: Lint
+        run: ruff check .
+      - name: Build demo model (synthetic) so API + parity tests run
+        run: |
+          python scripts/prepare_data.py --config configs/synthetic.yaml --synthetic 12
+          python scripts/train.py --config configs/synthetic.yaml --no-resume train.epochs=1 model.pretrained=false
+          python scripts/evaluate.py --config configs/synthetic.yaml --weights outputs/synthetic_smoke/best.pt --split test --no-tta
+          python scripts/make_demo_assets.py --config configs/synthetic.yaml --weights outputs/synthetic_smoke/best.pt --eval outputs/synthetic_smoke/eval_test/summary.json --synthetic --version ci-synthetic
+          python scripts/export_onnx.py --min-dice 0.999
+      - name: Tests
+        run: pytest --cov --cov-report=term-missing
+      - name: Dependency audit (SR-12)
+        run: pip-audit -r requirements.txt -r api/requirements.txt || true
+
+  web:
+    name: Web (React + NiiVue)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high || true
+
+  e2e:
+    name: End-to-end (Playwright + axe) + API image
+    runs-on: ubuntu-latest
+    needs: [python, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - name: Python deps + synthetic demo model
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt && pip install -e .
+          python scripts/prepare_data.py --config configs/synthetic.yaml --synthetic 12
+          python scripts/train.py --config configs/synthetic.yaml --no-resume train.epochs=2
+          python scripts/evaluate.py --config configs/synthetic.yaml --weights outputs/synthetic_smoke/best.pt --split test --no-tta
+          python scripts/make_demo_assets.py --config configs/synthetic.yaml --weights outputs/synthetic_smoke/best.pt --eval outputs/synthetic_smoke/eval_test/summary.json --synthetic --version ci-synthetic
+          python scripts/export_onnx.py
+          python scripts/make_dicom_fixture.py
+      - name: Build + smoke-test the API Docker image
+        run: |
+          docker build -f api/Dockerfile -t btp-api .
+          docker run -d -p 7860:7860 --name api btp-api
+          for i in $(seq 1 30); do curl -sf localhost:7860/v1/health && break; sleep 2; done
+          curl -sf -X POST "localhost:7860/v1/samples/synthetic_1/segment?tta=false" | python -c "import json,sys; assert json.load(sys.stdin)['profile']['n_slices']>0"
+      - name: Playwright
+        working-directory: web
+        env: { BTP_PYTHON: python }
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test

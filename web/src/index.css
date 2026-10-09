@@ -1,0 +1,80 @@
+@import "tailwindcss";
+@import "@fontsource/libre-baskerville/400.css";
+@import "@fontsource/libre-baskerville/400-italic.css";
+@import "@fontsource/libre-baskerville/700.css";
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource-variable/jetbrains-mono/index.css";
+
+/*
+ * Design system: "warm editorial, grounded in evidence".
+ * Paper + ink + terracotta. Self-hosted fonts so Private mode keeps working offline.
+ * Contrast: ink-tertiary on paper ≈ 5.9:1; terracotta-ink (#9C4A2F) on paper ≈ 6:1 for small text;
+ * bright terracotta (#C4684B) only for large display text, fills and focus rings.
+ */
+@theme {
+  --color-paper: #fef9ed;
+  --color-paper-2: #f4f1ea;
+  --color-paper-3: #f0ebe0;
+  --color-sand: #e7dfd1;
+  --color-ink: #2e2a26;
+  --color-ink-2: #4a433e;
+  --color-ink-3: #6b625c;
+  --color-terra: #c4684b;
+  --color-terra-ink: #9c4a2f;
+  --color-terra-soft: #f3dccf;
+  --color-room: #15110f;      /* reading room: dark surround for image contrast perception */
+  --color-room-2: #1f1916;
+  --color-room-line: #3a2f29;
+  --color-scan: #22d3ee;      /* overlay accent stays cyan: maximal contrast on greyscale MRI */
+
+  --font-serif: "Libre Baskerville", Georgia, serif;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-silk: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-fade-in: fade-in 0.6s var(--ease-out-expo) both;
+  --animate-scan: scan 2.4s ease-in-out infinite;
+  --animate-pulse-ring: pulse-ring 2.2s var(--ease-out-expo) infinite;
+  --animate-breathe: breathe 14s ease-in-out infinite;
+  --animate-drift: drift 22s ease-in-out infinite alternate;
+}
+
+@keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes scan { 0% { top: 0; opacity: 0; } 10%, 90% { opacity: 0.85; } 100% { top: 100%; opacity: 0; } }
+@keyframes pulse-ring { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes breathe { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@keyframes drift { from { transform: translate3d(-2%, -1%, 0) rotate(-35deg); } to { transform: translate3d(2%, 1.5%, 0) rotate(-31deg); } }
+
+html { scroll-behavior: smooth; }
+html, body, #root { height: 100%; }
+body { background: var(--color-paper); color: var(--color-ink-2); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+::selection { background: var(--color-terra-soft); color: var(--color-ink); }
+:focus-visible { outline: 2px solid var(--color-terra); outline-offset: 3px; border-radius: 6px; }
+
+/* scroll reveal (see useReveal) */
+.reveal { opacity: 0; transform: translateY(30px); transition: opacity 1s var(--ease-out-expo), transform 1s var(--ease-out-expo); }
+.reveal.is-visible { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  .reveal { opacity: 1; transform: none; }
+}
+
+/* ---------- components (Tailwind v4 utilities) ---------- */
+@utility eyebrow { @apply font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-ink-3; }
+@utility display { @apply font-serif font-normal tracking-[-0.01em] text-ink leading-[1.05]; }
+@utility card { @apply rounded-3xl bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.04),0_1px_3px_rgba(0,0,0,0.02)]; }
+@utility card-lift { @apply transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] hover:-translate-y-1; }
+@utility pill { @apply inline-flex items-center justify-center gap-2 rounded-full px-7 py-3.5 text-[15px] font-medium transition duration-300 disabled:cursor-not-allowed disabled:opacity-40; }
+@utility pill-cream { @apply pill bg-paper/95 text-terra-ink shadow-[0_8px_30px_rgba(80,30,10,0.18)] hover:bg-white hover:shadow-[0_12px_40px_rgba(80,30,10,0.25)]; }
+@utility pill-ink { @apply pill bg-ink text-paper hover:bg-ink-2; }
+@utility pill-soft { @apply pill bg-sand/60 font-mono text-[12px] uppercase tracking-[0.15em] text-ink hover:bg-sand; }
+@utility pill-ghost { @apply pill border border-ink/15 text-ink hover:bg-ink/5; }
+@utility chip { @apply inline-flex items-center gap-1.5 rounded-full bg-paper-2 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-ink-2; }
+@utility seg { @apply rounded-full px-3 py-1.5 text-xs font-medium text-ink-2 transition hover:bg-paper-2 aria-pressed:bg-ink aria-pressed:text-paper; }
+@utility label { @apply eyebrow mb-2 block; }
+/* reading-room variants */
+@utility room-panel { @apply rounded-3xl border border-room-line bg-room-2 text-[#e9e2d8]; }
+@utility seg-dark { @apply rounded-full px-3 py-1.5 text-xs font-medium text-[#cfc6ba] transition hover:bg-white/10 aria-pressed:bg-paper aria-pressed:text-ink; }

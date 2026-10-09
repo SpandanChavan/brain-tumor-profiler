@@ -1,0 +1,39 @@
+# Default experiment config (FR-M3). Copy and edit for new runs; every run logs this file.
+seed: 42
+
+data:
+  raw_dir: data/raw/BraTS2021          # folder of BraTS2021_XXXXX patient folders
+  processed_dir: data/processed        # per-patient .npy stacks written by scripts/prepare_data.py
+  manifest: data/processed/manifest.csv
+  splits: data/processed/splits.json
+  num_patients: 120                    # 100-150 per scope
+  split_ratios: [0.70, 0.15, 0.15]     # train / val / test (patient-level!)
+  modalities: [t1ce, flair]
+  tumor_to_empty_ratio: 1.0            # non-tumor slices sampled per tumor slice
+  min_brain_fraction: 0.01             # skip slices that are almost all background
+
+model:
+  name: flexible_unet
+  backbone: efficientnet-b0
+  pretrained: true
+  in_channels: 2
+  out_channels: 1
+
+train:
+  epochs: 40
+  batch_size: 16
+  lr: 3.0e-4
+  weight_decay: 1.0e-4
+  amp: true
+  num_workers: 2
+  early_stopping_patience: 8
+  val_every: 1
+  bce_weight: 1.0
+  dice_weight: 1.0
+  output_dir: outputs/run
+
+inference:
+  threshold: 0.5
+  min_component_voxels: 50
+  tta: true
+  batch_size: 16

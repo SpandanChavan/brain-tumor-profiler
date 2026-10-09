@@ -1,0 +1,49 @@
+# --- Privacy: never commit imaging data, weights or secrets ---
+data/
+!data/.gitkeep
+*.nii
+*.nii.gz
+*.dcm
+*.npy
+*.npz
+models/*.pt
+models/*.pth
+models/*.onnx
+models/*.ts
+.env
+*.key
+logs/
+audit/
+
+# Bundled synthetic demo case is generated, not real data -- still regenerate rather than commit
+assets/demo/*.nii.gz
+
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# --- Notebooks / tools ---
+.ipynb_checkpoints/
+wandb/
+runs/
+mlruns/
+outputs/
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# local tooling / test output
+.claude/
+test-results/
+playwright-report/

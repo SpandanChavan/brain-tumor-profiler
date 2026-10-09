@@ -1,0 +1,11 @@
+# API runtime only: NO PyTorch (keeps the free HF Space image small, ~400 MB vs ~3 GB)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+onnxruntime>=1.18
+nibabel>=5.2
+pydicom>=2.4
+numpy>=1.26
+scipy>=1.11
+scikit-image>=0.22
+cryptography>=42.0
