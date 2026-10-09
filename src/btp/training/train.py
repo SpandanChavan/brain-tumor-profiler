@@ -155,7 +155,18 @@ def train(cfg: dict[str, Any], resume: bool = True) -> dict[str, Any]:
             print(f"Early stopping: no val improvement for {bad_epochs} epochs.")
             break
     mf.close()
-    summary = {"best_val_dice": best, "output_dir": str(out), "git_commit": commit}
+    if not (out / "best.pt").exists():
+        # no validation ever ran (empty val split, or fewer epochs than val_every): never end a
+        # run without a usable checkpoint; keep the final weights and say so loudly
+        print("WARNING: no validation was run; saving the final epoch as best.pt (not model-selected).")
+        sha = save_checkpoint(model, out / "best.pt", model_cfg=cfg["model"], meta={
+            "epoch": epoch, "val_dice_mean": None, "selection": "final-epoch (no validation)",
+            "git_commit": commit, "seed": cfg["seed"], "modalities": dcfg["modalities"],
+            "threshold": cfg["inference"]["threshold"], "n_train_patients": len(splits["train"]),
+            "n_val_patients": len(splits.get("val", [])),
+        })
+        (out / "best.sha256").write_text(sha, encoding="utf-8")
+    summary = {"best_val_dice": best if best >= 0 else None, "output_dir": str(out), "git_commit": commit}
     (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
 

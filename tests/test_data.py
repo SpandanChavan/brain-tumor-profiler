@@ -61,3 +61,23 @@ def test_slice_dataset_balancing(tmp_path):
     s = ds[0]
     assert s["image"].shape == (2, 64, 64) and s["label"].shape == (1, 64, 64)
     assert set(np.unique(s["label"].numpy())) <= {0.0, 1.0}
+
+
+@pytest.mark.parametrize("n", [3, 5, 8, 12, 24, 120])
+def test_split_never_starves_val_or_test(n):
+    """Regression: per-bin rounding gave 12 patients -> 0 validation (broke CI)."""
+    s = patient_split(_manifest(n), seed=0)
+    assert len(s["val"]) >= 1 and len(s["test"]) >= 1 and len(s["train"]) >= 1
+    assert len(s["train"]) + len(s["val"]) + len(s["test"]) == n
+    if n >= 40:  # sizes follow the requested 70/15/15 closely
+        assert abs(len(s["train"]) / n - 0.7) < 0.05
+
+
+def test_split_val_and_test_span_tumor_sizes():
+    m = _manifest(40)
+    s = patient_split(m, seed=1)
+    q = m.set_index("patient_id").tumor_voxels
+    med = q.median()
+    for k in ("val", "test"):
+        sizes = q[s[k]]
+        assert (sizes < med).any() and (sizes >= med).any()

@@ -16,8 +16,11 @@ def patient_split(manifest: pd.DataFrame, ratios=(0.7, 0.15, 0.15), seed: int = 
                   stratify_col: str = "tumor_voxels", n_bins: int = 4) -> dict[str, list[str]]:
     """Return {'train': [...], 'val': [...], 'test': [...]} of patient IDs.
 
-    Patients are binned into tumor-size quantiles and each bin is split with the same
-    ratios, so every split sees small and large tumors.
+    Split sizes are computed over the whole cohort (largest-remainder rounding), with at
+    least one validation and one test patient whenever there are >= 3 patients; rounding
+    per size-bin used to starve small splits (e.g. 12 patients -> 0 validation).
+    Stratification: patients are shuffled within tumor-size quantile bins, then dealt
+    round-robin across bins, so every split sees small and large tumors.
     """
     if abs(sum(ratios) - 1.0) > 1e-6:
         raise ValueError("ratios must sum to 1")
@@ -28,16 +31,31 @@ def patient_split(manifest: pd.DataFrame, ratios=(0.7, 0.15, 0.15), seed: int = 
     else:
         bins = pd.Series(np.zeros(len(df), dtype=int))
 
-    out: dict[str, list[str]] = {"train": [], "val": [], "test": []}
+    # global sizes via largest remainder
+    n = len(df)
+    raw = np.array(ratios) * n
+    sizes = np.floor(raw).astype(int)
+    for i in np.argsort(-(raw - sizes))[: n - sizes.sum()]:
+        sizes[i] += 1
+    if n >= 3:  # every non-empty ratio gets at least one patient, taken from train
+        for i in (1, 2):
+            if ratios[i] > 0 and sizes[i] == 0:
+                sizes[i], sizes[0] = 1, sizes[0] - 1
+
+    # interleave bins so each slice of the ordering spans all tumor sizes
+    per_bin = []
     for b in sorted(bins.unique()):
         ids = df.loc[bins == b, "patient_id"].tolist()
         rng.shuffle(ids)
-        n = len(ids)
-        n_train = int(round(n * ratios[0]))
-        n_val = int(round(n * ratios[1]))
-        out["train"] += ids[:n_train]
-        out["val"] += ids[n_train:n_train + n_val]
-        out["test"] += ids[n_train + n_val:]
+        per_bin.append(ids)
+    order = [ids[k] for k in range(max(map(len, per_bin))) for ids in per_bin if k < len(ids)]
+
+    n_test, n_val = sizes[2], sizes[1]
+    out: dict[str, list[str]] = {
+        "test": order[:n_test],
+        "val": order[n_test:n_test + n_val],
+        "train": order[n_test + n_val:],
+    }
     for k in out:
         out[k] = sorted(out[k])
     assert_no_leakage(out)

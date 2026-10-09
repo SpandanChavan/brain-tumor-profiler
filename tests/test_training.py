@@ -44,3 +44,22 @@ def test_one_epoch_training_and_resume(tmp_path):
 def test_config_overrides_are_typed():
     cfg = load_config(PROJECT_ROOT / "configs" / "default.yaml", ["train.lr=1e-3", "model.pretrained=false"])
     assert cfg["train"]["lr"] == 1e-3 and cfg["model"]["pretrained"] is False
+
+
+def test_training_without_validation_still_saves_checkpoint(tmp_path):
+    """Regression: an empty val split used to finish without best.pt (broke CI)."""
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    for i in range(2):
+        p = save_phantom_nifti(make_phantom(shape=(48, 48, 16), seed=i), tmp_path / "raw", f"S{i}")
+        c = load_case(p["t1ce"], p["flair"], p["seg"])
+        np.save(proc / f"S{i}_img.npy", to_slice_stack(c.image).astype(np.float16))
+        np.save(proc / f"S{i}_lbl.npy", np.transpose(c.label, (2, 0, 1)))
+    save_splits({"train": ["S0"], "val": [], "test": ["S1"]}, proc / "splits.json")
+    cfg = load_config(PROJECT_ROOT / "configs" / "default.yaml", [
+        f"data.processed_dir={proc.as_posix()}", f"data.splits={(proc / 'splits.json').as_posix()}",
+        "model.name=unet", "train.epochs=1", "train.batch_size=4", "train.num_workers=0",
+        f"train.output_dir={(tmp_path / 'run').as_posix()}",
+    ])
+    summary = train(cfg, resume=False)
+    assert (tmp_path / "run" / "best.pt").exists() and summary["best_val_dice"] is None
