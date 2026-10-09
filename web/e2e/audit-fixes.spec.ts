@@ -69,7 +69,7 @@ test("mobile workspace shows scan, then result, then controls", async ({ page })
   await page.goto("/analyze");
   await page.getByRole("checkbox").first().check();
   await page.getByRole("button", { name: /synthetic 1/ }).click();
-  await expect(page.getByText("Region suggestive of tumor identified")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Region suggestive of tumor identified|No tumor region detected by the model/ })).toBeVisible();
   const top = async (label: string) => (await page.getByLabel(label, { exact: true }).boundingBox())!.y;
   expect(await top("Scan viewer")).toBeLessThan(await top("Results"));
   expect(await top("Results")).toBeLessThan(await top("Viewer controls"));

@@ -67,8 +67,9 @@ jobs:
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements-dev.txt && pip install -e .
-          python scripts/prepare_data.py --config configs/synthetic.yaml --synthetic 12
-          python scripts/train.py --config configs/synthetic.yaml --no-resume train.epochs=2
+          # a small but meaningful demo model (pretrained encoder, 24 phantoms, 4 epochs, ~3 min CPU)
+          python scripts/prepare_data.py --config configs/synthetic.yaml --synthetic 24
+          python scripts/train.py --config configs/synthetic.yaml --no-resume train.epochs=4
           python scripts/evaluate.py --config configs/synthetic.yaml --weights outputs/synthetic_smoke/best.pt --split test --no-tta
           python scripts/make_demo_assets.py --config configs/synthetic.yaml --weights outputs/synthetic_smoke/best.pt --eval outputs/synthetic_smoke/eval_test/summary.json --synthetic --version ci-synthetic
           python scripts/export_onnx.py
