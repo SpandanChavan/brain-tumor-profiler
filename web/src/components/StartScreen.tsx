@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, Check, Cloud, FileUp, Lock, Sparkles, WifiOff } from "lucide-react";
 import { api, CancelledError, type Sample } from "../lib/api";
-import { analyze, sourceFromFile, type Inputs } from "../lib/analyze";
+import { analyze, isModelCached, preparePrivateMode, sourceFromFile, type Inputs } from "../lib/analyze";
 import { useStore } from "../store";
+import UploadPicker from "./UploadPicker";
 
 function Step({ n, title, children, done }: { n: string; title: string; children: React.ReactNode; done?: boolean }) {
   return (
@@ -26,6 +27,20 @@ export default function StartScreen() {
   const [sampleErr, setSampleErr] = useState<string | null>(null);
   const [t1, setT1] = useState<File | null>(null);
   const [fl, setFl] = useState<File | null>(null);
+  // private mode: is the model already on this device (offline-ready)?
+  const [cached, setCached] = useState<boolean | null>(null);
+  const [prep, setPrep] = useState<string | null>(null);
+  useEffect(() => { if (st.mode === "private") void isModelCached().then(setCached); }, [st.mode]);
+  const prepareOffline = async () => {
+    setPrep("Starting download…");
+    try {
+      await preparePrivateMode((p) => setPrep(p.message));
+      setCached(await isModelCached());
+      setPrep(null);
+    } catch (e) {
+      setPrep(e instanceof Error ? e.message : "Download failed. Please try again.");
+    }
+  };
 
   useEffect(() => {
     api.samples().then(setSamples).catch(() => setSampleErr("Sample cases come from the analysis server, which is waking up or offline. Try again in ~30 s."));
@@ -104,6 +119,21 @@ export default function StartScreen() {
             <input type="checkbox" className="h-4 w-4 accent-[#9c4a2f]" checked={st.tta} onChange={(e) => st.setTta(e.target.checked)} />
             Uncertainty map via test-time augmentation (4× compute; recommended)
           </label>
+          {st.mode === "private" && (
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-950" role="status">
+              <WifiOff className="h-4 w-4 shrink-0" aria-hidden />
+              {cached ? (
+                <span><b>Ready offline.</b> The model is stored on this device; you can turn Wi-Fi off and still analyse scans.</span>
+              ) : prep ? (
+                <span>{prep}</span>
+              ) : (
+                <>
+                  <span className="flex-1">The first private analysis downloads the AI model (~21 MB) once. Do it now to work offline later.</span>
+                  <button className="pill-ink px-4 py-2 text-sm" onClick={prepareOffline}>Download for offline use</button>
+                </>
+              )}
+            </div>
+          )}
         </Step>
 
         <Step n="3" title="Choose a scan">
@@ -117,8 +147,8 @@ export default function StartScreen() {
                 {sampleErr && <p className="text-sm text-ink-3">{sampleErr}</p>}
                 {samples?.map((s) => (
                   <button key={s.id} disabled={!st.consent} onClick={() => runSample(s)}
-                    className="group flex items-center justify-between gap-3 rounded-2xl bg-paper-2 px-4 py-3 text-left text-sm text-ink transition hover:bg-sand disabled:cursor-not-allowed disabled:opacity-40">
-                    <span className="truncate font-medium">{s.id.replaceAll("_", " ")}</span>
+                    className="group flex flex-col items-start gap-1 rounded-2xl bg-paper-2 px-4 py-3 text-left text-sm text-ink transition hover:bg-sand disabled:cursor-not-allowed disabled:opacity-40">
+                    <span className="font-medium capitalize">{s.id.replaceAll("_", " ")}</span>
                     <span className="font-mono text-[10px] uppercase tracking-wider text-ink-3">{s.synthetic ? "phantom" : "BraTS"}{s.has_label ? " · expert" : ""}</span>
                   </button>
                 ))}
@@ -132,14 +162,15 @@ export default function StartScreen() {
                 <li><code className="font-mono text-[12px]">.nii</code> / <code className="font-mono text-[12px]">.nii.gz</code>, or a <code className="font-mono text-[12px]">.zip</code> of one DICOM series</li>
                 <li>Best: skull-stripped, co-registered, ~1 mm</li>
               </ul>
-              {(["T1ce", "FLAIR"] as const).map((name) => (
-                <label key={name} className="mt-4 block">
-                  <span className="label">{name}</span>
-                  <input type="file" accept=".nii,.gz,.zip"
-                    className="block w-full rounded-xl bg-paper-2 text-xs text-ink-2 file:mr-3 file:rounded-xl file:border-0 file:bg-ink file:px-3.5 file:py-2 file:text-paper"
-                    onChange={(e) => (name === "T1ce" ? setT1 : setFl)(e.target.files?.[0] ?? null)} />
-                </label>
-              ))}
+              <UploadPicker files={{ t1ce: t1, flair: fl }} onChange={(f) => { setT1(f.t1ce); setFl(f.flair); }} />
+              {samples?.[0] && (
+                <p className="mt-3 text-xs text-ink-3">
+                  No scans to hand? Download a sample pair to try the upload:{" "}
+                  <a className="font-medium text-terra-ink underline underline-offset-2" href={api.sampleUrl(samples[0].id, "t1ce")} download={`${samples[0].id}_t1ce.nii.gz`}>T1ce</a>
+                  {" · "}
+                  <a className="font-medium text-terra-ink underline underline-offset-2" href={api.sampleUrl(samples[0].id, "flair")} download={`${samples[0].id}_flair.nii.gz`}>FLAIR</a>
+                </p>
+              )}
               <button className="pill-ink mt-6 w-full" disabled={!st.consent || !t1 || !fl} onClick={runUpload}>
                 Analyze {st.mode === "private" ? "on this device" : "my scans"} <ArrowRight className="h-4 w-4" />
               </button>

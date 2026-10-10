@@ -22,15 +22,35 @@ export function sourceFromFile(f: File): VolSource {
   return { url: URL.createObjectURL(f), name: f.name };
 }
 
-function fromServer(r: SegmentResponse, inp: Inputs): Result {
+/**
+ * Copy the result volumes into browser memory right away, then delete the server copy.
+ * Before: the viewer and exports read from the server, so after its 10-minute TTL a
+ * sequence switch broke the viewer and "Mask" saved a 2-byte error as .nii.gz.
+ * Now nothing depends on the server after this point, and it keeps the data for seconds, not minutes.
+ */
+async function fromServer(r: SegmentResponse, inp: Inputs, signal: AbortSignal): Promise<Result> {
   const f = r.files as Record<string, string>;
+  const grab = async (path?: string) => {
+    if (!path) return undefined;
+    const resp = await fetch(api.fileUrl(path), { signal, referrerPolicy: "no-referrer" });
+    if (!resp.ok) throw new Error("The analysis finished but its result could not be downloaded. Please run it again.");
+    return URL.createObjectURL(await resp.blob());
+  };
+  const [maskUrl, uncUrl, labelUrl] = await Promise.all([grab(f.mask), grab(f.uncertainty), grab(f.label)]);
+  void api.deleteResult(r.job_id); // the server copy is no longer needed
   return {
-    mode: "server", label: inp.label, t1ce: inp.t1ce, flair: inp.flair,
-    maskUrl: api.fileUrl(f.mask), uncUrl: api.fileUrl(f.uncertainty), labelUrl: f.label ? api.fileUrl(f.label) : undefined,
+    mode: "server", label: inp.label, t1ce: inp.t1ce, flair: inp.flair, maskUrl, uncUrl, labelUrl,
     profile: r.profile, area: r.area_per_slice_mm2, seconds: r.timings.total_s, warnings: r.warnings,
-    agreement: r.agreement, synthetic: r.synthetic_model, modelVersion: r.model_version, jobId: r.job_id,
+    agreement: r.agreement, synthetic: r.synthetic_model, modelVersion: r.model_version,
     deid: r.deidentification,
   };
+}
+
+/** Release every in-memory copy (object URL) a result holds: inputs and outputs. */
+export function releaseResult(res: Result) {
+  for (const u of [res.t1ce.url, res.flair.url, res.maskUrl, res.uncUrl, res.labelUrl]) {
+    if (u?.startsWith("blob:")) URL.revokeObjectURL(u);
+  }
 }
 
 // ---------------------------------------------------------------- private mode
@@ -43,6 +63,7 @@ export function preparePrivateMode(onProgress?: (p: Progress) => void): Promise<
   onProgress?.({ frac: 0.02, message: "Downloading the AI model to this device (once)…" });
   workerReady = new Promise((resolve, reject) => {
     const onMsg = (e: MessageEvent<WorkerOut>) => {
+      if (e.data.type === "progress") onProgress?.({ frac: 0.02 + 0.06 * e.data.frac, message: e.data.message });
       if (e.data.type === "ready") { worker!.removeEventListener("message", onMsg); resolve(e.data.backend); }
       if (e.data.type === "error") { worker!.removeEventListener("message", onMsg); worker!.terminate(); worker = null; workerReady = null; reject(new Error(e.data.message)); }
     };
@@ -50,6 +71,15 @@ export function preparePrivateMode(onProgress?: (p: Progress) => void): Promise<
     worker!.postMessage({ type: "init", modelUrl: MODEL_URL, wasmPaths: WASM_PATHS } satisfies WorkerIn);
   });
   return workerReady;
+}
+
+/** Is the private-mode model already cached on this device (so it works offline)? */
+export async function isModelCached(): Promise<boolean> {
+  try {
+    return "caches" in window && !!(await (await caches.open("btp-model-v1")).match(MODEL_URL));
+  } catch {
+    return false;
+  }
 }
 
 async function loadVol(src: VolSource): Promise<NVImage> {
@@ -140,6 +170,6 @@ export async function analyze(mode: Mode, inp: Inputs, tta: boolean, onProgress:
   await api.health(signal);
   onProgress({ frac: 0.3, message: inp.files ? "Uploading and segmenting (processed in memory)…" : "Segmenting on the server…" });
   const r = inp.sampleId ? await api.segmentSample(inp.sampleId, tta, signal) : await api.segment(inp.files!.t1ce, inp.files!.flair, tta, signal);
-  onProgress({ frac: 1, message: "Done" });
-  return fromServer(r, inp);
+  onProgress({ frac: 0.95, message: "Downloading the result to this browser…" });
+  return fromServer(r, inp, signal);
 }

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
+from contextlib import asynccontextmanager
 
 import nibabel as nib
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -24,12 +25,23 @@ from .pipeline import Segmenter
 from .settings import settings
 from .store import RateLimiter, ResultStore
 
-app = FastAPI(title="Brain Tumor Profiler API", version=__version__,
+segmenter = Segmenter(settings.model_path, settings.card_path, settings.threads)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Warm the ONNX session in the background at startup, so the first user doesn't pay the
+    # model-load cost (it showed up as a ~25 s first analysis). Startup itself is not blocked.
+    warm = asyncio.create_task(run_in_threadpool(lambda: segmenter.ready))
+    yield
+    warm.cancel()
+
+
+app = FastAPI(title="Brain Tumor Profiler API", version=__version__, lifespan=lifespan,
               description=f"{DISCLAIMER} De-identified research data only.")
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins,
                    allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
 
-segmenter = Segmenter(settings.model_path, settings.card_path, settings.threads)
 store = ResultStore(settings.result_ttl_seconds)
 limiter = RateLimiter(settings.rate_limit_per_minute)
 jobs = asyncio.Semaphore(settings.max_concurrent_jobs)

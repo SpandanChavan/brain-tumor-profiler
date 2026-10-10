@@ -32,7 +32,7 @@ def nifti_gz_bytes(arr: np.ndarray, affine: np.ndarray) -> bytes:
 
 
 class Segmenter:
-    def __init__(self, model_path: Path, card_path: Path, threads: int):
+    def __init__(self, model_path: Path, card_path: Path, threads: int | None):
         self.model_path, self.card_path, self.threads = model_path, card_path, threads
         self._predictor: Predictor | None = None
         self._lock = threading.Lock()  # concurrent first requests must not build two ONNX sessions

@@ -26,13 +26,34 @@ const post = (m: WorkerOut, transfer: Transferable[] = []) => (self as Dedicated
 async function loadModel(url: string): Promise<ArrayBuffer> {
   // Cache Storage: download once, then works offline (the "Wi-Fi off" demo)
   const cache = "caches" in self ? await caches.open("btp-model-v1") : null;
-  let resp = cache ? await cache.match(url) : undefined;
-  if (!resp) {
-    resp = await fetch(url);
-    if (!resp.ok) throw new Error(`Could not download the model (${resp.status}).`);
-    if (cache) await cache.put(url, resp.clone());
+  const hit = cache ? await cache.match(url) : undefined;
+  if (hit) return hit.arrayBuffer();
+  const resp = await fetch(url);
+  if (!resp.ok || !resp.body) throw new Error(`Could not download the model (${resp.status}).`);
+  // stream with progress so a first-time user sees the 21 MB download moving
+  const total = Number(resp.headers.get("content-length")) || 0;
+  const reader = resp.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let got = 0, lastPct = -1;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); got += value.length;
+    const pct = total ? Math.floor((got / total) * 100) : -1;
+    if (pct !== lastPct && (pct % 5 === 0 || pct === -1)) {
+      lastPct = pct;
+      const mb = (n: number) => (n / 1e6).toFixed(1);
+      post({
+        type: "progress", frac: total ? got / total : 0,
+        message: total ? `Downloading the AI model to this device: ${mb(got)} of ${mb(total)} MB (once)`
+          : `Downloading the AI model to this device: ${mb(got)} MB (once)`,
+      });
+    }
   }
-  return resp.arrayBuffer();
+  const buf = new Uint8Array(got);
+  let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
+  if (cache) await cache.put(url, new Response(buf, { headers: { "content-type": "application/octet-stream" } }));
+  return buf.buffer;
 }
 
 async function init(modelUrl: string, wasmPaths: string) {

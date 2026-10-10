@@ -4,9 +4,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Area, AreaChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ArrowLeft, Download, FileText, Image as ImageIcon, LocateFixed, Trash2 } from "lucide-react";
-import Viewer from "./Viewer";
+import Viewer, { type Capture } from "./Viewer";
 import { useStore, type Layout } from "../store";
-import { api } from "../lib/api";
+import { releaseResult } from "../lib/analyze";
 // export helpers (jsPDF etc.) are loaded on first use, not with the workspace
 const report = () => import("../lib/report");
 
@@ -17,8 +17,8 @@ export default function Workspace() {
   const st = useStore();
   const res = st.result!;
   const p = res.profile;
-  const canvas = useRef<HTMLCanvasElement | null>(null);
-  const onCanvas = useCallback((c: HTMLCanvasElement | null) => { canvas.current = c; }, []);
+  const capture = useRef<Capture | null>(null);
+  const onCanvas = useCallback((c: Capture | null) => { capture.current = c; }, []);
   const chart = res.area.map((a, z) => ({ z, cm2: +(a / 100).toFixed(2) }));
   const hasExpert = !!(res.labelUrl || res.labelRas);
 
@@ -38,7 +38,7 @@ export default function Workspace() {
     return () => window.removeEventListener("keydown", onKey);
   }, [st, hasExpert, p.max_area_slice]);
 
-  const screenshot = () => canvas.current?.toDataURL("image/png") ?? null;
+  const screenshot = (type: "image/png" | "image/jpeg" = "image/png") => capture.current?.(type) ?? null;
   const savePng = () => {
     const u = screenshot();
     if (!u) return;
@@ -46,9 +46,7 @@ export default function Workspace() {
     a.href = u; a.download = "viewer.png"; a.click();
   };
   const newAnalysis = () => {
-    if (res.jobId) void api.deleteResult(res.jobId);
-    // release in-memory copies of uploaded files (object URLs) so the scan is really gone
-    for (const s of [res.t1ce, res.flair]) if (s.url.startsWith("blob:")) URL.revokeObjectURL(s.url);
+    releaseResult(res); // drop every in-memory copy of the scan and results
     st.setResult(null);
   };
   const layers: ["showMask" | "showUnc" | "showCompare", string][] = [["showMask", "AI outline (O)"], ["showUnc", "Uncertainty map (U)"]];
@@ -100,11 +98,26 @@ export default function Workspace() {
             <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-[#e879f9]" /> expert only (missed)</div>
           </div>
         )}
-        {st.showUnc && <p className="text-xs leading-relaxed text-ink-3">Coloured = the AI’s predictions disagree when the scan is flipped; brighter = more unsure. Check these areas most carefully.</p>}
+        {st.showUnc && (
+          <div className="space-y-1.5">
+            <div className="h-2.5 rounded-full bg-[linear-gradient(90deg,#320a5e,#9c2964,#ed6925,#fcffa4)]" role="img" aria-label="Uncertainty colour scale from slightly unsure (dark purple) to very unsure (pale yellow)" />
+            <div className="flex justify-between text-[11px] text-ink-3"><span>slightly unsure</span><span>very unsure</span></div>
+            <p className="text-xs leading-relaxed text-ink-3">Uncoloured = consistent. Colour shows where the AI’s predictions disagree when the scan is flipped. Check those areas most carefully.</p>
+          </div>
+        )}
+        <details className="rounded-xl bg-paper-2 p-3 text-[12px] text-ink-2">
+          <summary className="cursor-pointer font-medium text-ink">Mouse &amp; keyboard</summary>
+          <ul className="mt-2 space-y-1">
+            <li><b>Scroll</b> change slice · <b>click/drag</b> move crosshair</li>
+            <li><b>Right-drag</b> brightness/contrast · <b>3D view</b> drag to rotate</li>
+            <li><kbd className="font-mono">O</kbd> outline · <kbd className="font-mono">U</kbd> uncertainty · <kbd className="font-mono">E</kbd> expert</li>
+            <li><kbd className="font-mono">C</kbd> contour/filled · <kbd className="font-mono">L</kbd> largest slice · <kbd className="font-mono">1–5</kbd> layouts</li>
+          </ul>
+        </details>
       </aside>
 
       {/* ---------------- viewer (reading room) */}
-      <section className="order-1 min-h-[60vh] overflow-hidden lg:order-none lg:min-h-[72vh] rounded-3xl bg-room p-2 shadow-[0_30px_80px_rgba(30,15,8,0.25)]" aria-label="Scan viewer">
+      <section className="order-1 h-[60vh] overflow-hidden lg:sticky lg:top-24 lg:order-none lg:h-[calc(100vh-7.5rem)] lg:self-start rounded-3xl bg-room p-2 shadow-[0_30px_80px_rgba(30,15,8,0.25)]" aria-label="Scan viewer">
         <Viewer result={res} onCanvas={onCanvas} />
       </section>
 
@@ -176,18 +189,35 @@ export default function Workspace() {
               <div><dt className="text-[11px] text-ink-3">HD95</dt><dd className="font-serif text-lg text-ink">{res.agreement.hd95_mm != null ? `${res.agreement.hd95_mm.toFixed(1)} mm` : "—"}</dd></div>
               <div><dt className="text-[11px] text-ink-3">Sensitivity</dt><dd className="font-serif text-lg text-ink">{res.agreement.sensitivity?.toFixed(3) ?? "—"}</dd></div>
             </dl>
+            {res.mode === "private" && res.agreement.hd95_mm == null && (
+              <p className="mt-2 text-[11px] text-ink-3">HD95 is computed on the server only; switch to server mode to see it.</p>
+            )}
           </div>
         )}
+
+        {/* plain-language glossary: students and newcomers shouldn't need to look these up */}
+        <details className="card group p-5 text-[13px] leading-relaxed text-ink-2">
+          <summary className="cursor-pointer list-none font-medium text-ink marker:hidden">
+            <span className="mr-1 inline-block transition group-open:rotate-90">›</span> What do these numbers mean?
+          </summary>
+          <dl className="mt-3 space-y-2.5">
+            <div><dt className="font-medium text-ink">Volume, slices, extent</dt><dd>Measured from the AI outline: how big the region is and where it sits. Estimates, not clinical measurements.</dd></div>
+            <div><dt className="font-medium text-ink">Mean uncertainty</dt><dd>How much the AI disagrees with itself when the scan is flipped (0 = consistent, 0.5 = maximally unsure). Higher means check the outline more carefully.</dd></div>
+            <div><dt className="font-medium text-ink">Dice (0–1)</dt><dd>Overlap with the expert outline. 1 = identical. Two human experts typically agree at about 0.85–0.90.</dd></div>
+            <div><dt className="font-medium text-ink">HD95 (mm)</dt><dd>How far the AI’s border strays from the expert’s border (95th percentile). Lower is better.</dd></div>
+            <div><dt className="font-medium text-ink">Sensitivity (0–1)</dt><dd>The share of the expert’s tumor that the AI also found. Low values mean missed tumor.</dd></div>
+          </dl>
+        </details>
 
         <div className="card space-y-3">
           <p className="eyebrow">Export · no patient metadata</p>
           <div className="grid grid-cols-3 gap-2">
             <button className="pill-ghost px-2 py-2.5 text-sm" onClick={async () => { const r = await report(); r.downloadBlob(await r.maskNiftiBlob(res), "tumor_mask.nii.gz"); }}><Download className="h-4 w-4" /> Mask</button>
             <button className="pill-ghost px-2 py-2.5 text-sm" onClick={savePng}><ImageIcon className="h-4 w-4" /> PNG</button>
-            <button className="pill-ghost px-2 py-2.5 text-sm" onClick={async () => { const shot = screenshot(); const r = await report(); r.downloadBlob(r.buildReport(res, shot), "tumor_summary.pdf"); }}><FileText className="h-4 w-4" /> PDF</button>
+            <button className="pill-ghost px-2 py-2.5 text-sm" onClick={async () => { const shot = screenshot("image/jpeg"); const r = await report(); r.downloadBlob(r.buildReport(res, shot), "tumor_summary.pdf"); }}><FileText className="h-4 w-4" /> PDF</button>
           </div>
           <button className="pill w-full bg-rose-50 px-4 py-2.5 text-sm text-rose-900 hover:bg-rose-100" onClick={newAnalysis}><Trash2 className="h-4 w-4" /> Delete my data now</button>
-          <p className="text-[12px] leading-relaxed text-ink-3">{res.mode === "private" ? "Nothing was uploaded. Closing the tab discards everything." : "Server copies expire automatically within 10 minutes; this button deletes them immediately."}</p>
+          <p className="text-[12px] leading-relaxed text-ink-3">{res.mode === "private" ? "Nothing was uploaded. Closing the tab discards everything." : "The server deleted its copy as soon as your results arrived. This clears the copy in your browser."}</p>
         </div>
       </aside>
     </div>

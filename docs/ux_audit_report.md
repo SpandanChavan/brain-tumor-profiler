@@ -97,3 +97,77 @@
 2. **Run the SUS user test** with 5–8 people (Phase 7) and compare with this expert audit.
 3. **Deploy** (HF Space + Vercel) and re-test cold-start behaviour on the real free tier.
 4. Optional: let users opt into "pre-download the private-mode model" from the landing page, so the first private run feels instant.
+
+---
+---
+
+# Round 2: new-user audit (2026-10-10)
+
+**Method:** a second pass as a first-time user, this time asking *what's missing* as well as *what's broken*.
+- Every flow on desktop and mobile, plus the exported files (PDF, PNG, NIfTI) opened and inspected.
+- Server results tested after expiry.
+- API timing profiled.
+- CI and deploy workflows reviewed.
+
+## Scores
+
+| Area | Round 1 end | Round 2 found | After fixes | Why |
+|---|---|---|---|---|
+| Upload experience | 9 | **6** | 9 | No drag-and-drop. A new user also had **no scans to upload** and no way to get any. |
+| Exports (PDF / PNG / mask) | 9 | **3** | 9 | **PNG and PDF snapshots were blank.** The PDF was 3.5 MB of empty image with no demo-weights warning. After server expiry, "Mask" saved a 2-byte error as `.nii.gz`. |
+| Result robustness | 9 | **4** | 9.5 | After the 10-minute server TTL, switching FLAIR↔T1ce broke the viewer ("Not Found"). |
+| Workspace layout (desktop) | 9 | **6** | 9 | The viewer stretched to the results column's height (~1,800 px), so the scan floated in a mostly black box. |
+| Understandability | 7 | **6** | 9 | Dice, HD95 and uncertainty were unexplained; there was no viewer help and no uncertainty colour scale. |
+| Private mode | 9 | **7** | 9.5 | A silent 21 MB first download, and no way to prepare for the offline demo. |
+| API performance | 9 | **4** | 8 | Forcing ONNX Runtime to use `os.cpu_count()` threads (28) oversubscribed hyperthreads: **0.7 s → 21.5 s** per scan. |
+| Sample list | 9 | **7** | 9 | Case names were truncated to "synt…". |
+| CI / deploy | 9 | **5** | 9 | Deprecated Node 20 actions; a floating runner image; the Deploy API workflow copied files that are not in git, so it **could never succeed**. |
+| Accessibility | 9.5 | 9 | 9.5 | The new in-text links used colour only (caught by axe and fixed). |
+| **Overall** | 9.1 | **6.2** (honest) | **9.2 / 10** | |
+
+> Round 1 scored 9.1 because round 1 never opened the exported files and never waited 10 minutes. Round 2 did both, so the earlier score was too generous. That is what a second pass is for.
+
+## What a new user was missing, now added
+
+| Missing | Added |
+|---|---|
+| Something to upload | "No scans to hand? Download a sample pair" links next to the upload card |
+| Drag-and-drop | A drop zone that assigns T1ce/FLAIR **from file names** (BraTS 2021 `_t1ce/_flair`, 2023 `-t1c/-t2f`), with per-slot file chips (name + size) and remove buttons; unsupported files are listed and ignored |
+| Knowing whether Private mode works offline | **"Download for offline use"** with live MB progress, then a persistent "Ready offline" state (checked against Cache Storage) |
+| What the numbers mean | An expandable plain-language glossary (volume, uncertainty, Dice, HD95, sensitivity) next to the results |
+| How to use the viewer | A "Mouse & keyboard" help panel |
+| How to read the uncertainty colours | A colour scale (slightly unsure → very unsure) whenever the layer is on |
+| A note that HD95 is server-only | Shown in Private mode instead of a bare "—" |
+| A link to the source | "Source code on GitHub" in the footer, plus Open Graph tags for link previews |
+
+## Bugs fixed
+
+| # | Severity | Bug | Fix |
+|---|---|---|---|
+| 1 | **High** | PNG/PDF snapshots blank (WebGL clears its buffer after compositing) | The viewer exposes `capture()`: redraw and read in the same task. PDF embeds a JPEG with the correct aspect ratio (≤1.5 MB, was 3.5 MB) |
+| 2 | **High** | After server TTL: viewer "Not Found" on sequence switch; Mask export saved a 2-byte error as NIfTI | Results are copied into browser memory on arrival and **the server copy is deleted immediately** (more robust *and* more private). All in-memory copies are released on New analysis / Delete |
+| 3 | **High** | ONNX Runtime oversubscription: `threads = os.cpu_count()` | Default lets ORT choose (physical cores); `BTP_THREADS` overrides. Interleaved benchmark under the same load: median 14 s vs 22 s; unloaded: 0.7 s vs 21.5 s |
+| 4 | **High** | Deploy workflow could never run (weights and samples are gitignored) | It pulls weights and samples from an HF model repo (`HF_MODEL_REPO`), or builds the synthetic demo model; checks secrets with clear errors |
+| 5 | Medium | PDF had no synthetic-model warning | "DEMO WEIGHTS: … not a real result" line whenever the model is synthetic |
+| 6 | Medium | Viewer stretched to ~1,800 px on desktop | Viewport-height, sticky viewer; the results scroll beside it |
+| 7 | Medium | Sample names truncated | Name stacked above its tag |
+| 8 | Low | API first request paid the model-load cost | Background warm-up at startup (`lifespan`) |
+| 9 | Low | In-text links distinguishable by colour only (WCAG `link-in-text-block`) | Permanent underline |
+| 10 | Low | Actions on deprecated Node 20; floating `ubuntu-latest` | `checkout@v7`, `setup-python@v7`, `setup-node@v7` (Node 24); runner pinned to `ubuntu-24.04` |
+
+## Honest caveats
+- **Performance is hard to measure on this laptop.** Identical back-to-back runs varied from 0.6 s to 13 s (preprocessing slowed 3× at the same moments), with 14 other Docker containers running. That is machine throttling, not the app. The thread fix is proven by interleaved runs; absolute numbers should be re-measured on the deployed HF Space.
+- **Private-mode mask export is float32.** It's correct, but 4× larger than it needs to be. Left as is; low impact.
+- **Still synthetic.** Every number remains a pipeline demonstration until BraTS training.
+- **Still no user study.** The SUS test (Phase 7) remains the real validation.
+
+## Verification after round-2 fixes
+
+| Check | Result |
+|---|---|
+| Python tests | ✅ **59 passed**, ruff clean |
+| Web unit tests | ✅ **10 passed** (incl. upload auto-assignment), strict type-check clean |
+| Browser E2E (Playwright) | ✅ **24 passed**: 18 earlier + 6 new round-2 regression tests |
+| Accessibility (axe WCAG 2.1 AA) | ✅ 0 violations on all 5 pages |
+| Production build | ✅ landing JS 254 KB; `dist` 52 MB |
+| Visual check | ✅ analyze page and workspace screenshots reviewed after fixes |

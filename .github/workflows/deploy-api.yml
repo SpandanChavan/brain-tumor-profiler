@@ -1,5 +1,10 @@
 # Deploys the API to a free Hugging Face Space (Docker SDK, CPU basic).
-# One-time setup: create the Space, then add repo secret HF_TOKEN (write) and variable HF_SPACE (e.g. user/btp-api).
+# One-time setup:
+#   secret   HF_TOKEN       (write token)
+#   variable HF_SPACE       e.g. SpandanChavan/btp-api
+#   variable HF_MODEL_REPO  optional, e.g. SpandanChavan/btp-model with btp_model.onnx, model_card.json
+#                           and samples/<case>/<case>_{t1ce,flair,seg}.nii.gz. If unset, a synthetic
+#                           demo model + phantom samples are built here (weights are never stored in git).
 name: Deploy API to HF Spaces
 
 on:
@@ -7,24 +12,53 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_SPACE: ${{ vars.HF_SPACE }}
+      HF_MODEL_REPO: ${{ vars.HF_MODEL_REPO }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.11", cache: pip }
+      - name: Check configuration
+        run: |
+          test -n "$HF_TOKEN" || { echo "::error::Add the HF_TOKEN repository secret"; exit 1; }
+          test -n "$HF_SPACE" || { echo "::error::Add the HF_SPACE repository variable"; exit 1; }
+      - name: Get model + samples from the Hub
+        if: env.HF_MODEL_REPO != ''
+        run: |
+          pip install -q huggingface_hub
+          python - <<'EOF'
+          import os, shutil
+          from huggingface_hub import snapshot_download
+          d = snapshot_download(os.environ["HF_MODEL_REPO"], token=os.environ["HF_TOKEN"])
+          os.makedirs("models", exist_ok=True)
+          for f in ("btp_model.onnx", "model_card.json"):
+              shutil.copy(os.path.join(d, f), "models/")
+          if os.path.isdir(os.path.join(d, "samples")):
+              shutil.copytree(os.path.join(d, "samples"), "assets/demo", dirs_exist_ok=True)
+          EOF
+      - name: Build synthetic demo model + phantom samples
+        if: env.HF_MODEL_REPO == ''
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt && pip install -e .
+          python scripts/prepare_data.py --config configs/synthetic.yaml --synthetic 24
+          python scripts/train.py --config configs/synthetic.yaml --no-resume train.epochs=6
+          python scripts/evaluate.py --config configs/synthetic.yaml --weights outputs/synthetic_smoke/best.pt --split test
+          python scripts/make_demo_assets.py --config configs/synthetic.yaml --weights outputs/synthetic_smoke/best.pt --eval outputs/synthetic_smoke/eval_test/summary.json --synthetic --version demo-synthetic
+          python scripts/export_onnx.py
       - name: Assemble Space repo
         run: |
-          mkdir space
-          cp -r src api space/
+          test -f models/btp_model.onnx && test -d assets/demo
           mkdir -p space/models space/assets
+          cp -r src api space/
           cp models/btp_model.onnx models/model_card.json space/models/
           cp -r assets/demo space/assets/demo
           cp api/Dockerfile space/Dockerfile
           cp api/README.md space/README.md
       - name: Push to Space
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE: ${{ vars.HF_SPACE }}
         run: |
           pip install -q huggingface_hub
-          python -c "from huggingface_hub import HfApi; HfApi().upload_folder(folder_path='space', repo_id='${HF_SPACE}', repo_type='space', token='${HF_TOKEN}')"
+          python -c "import os; from huggingface_hub import HfApi; HfApi(token=os.environ['HF_TOKEN']).upload_folder(folder_path='space', repo_id=os.environ['HF_SPACE'], repo_type='space')"

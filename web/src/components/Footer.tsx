@@ -22,6 +22,7 @@ export default function Footer() {
             <li><button className="hover:text-terra-ink" onClick={() => setPage("analyze")}>Analyze a scan</button></li>
             <li><button className="hover:text-terra-ink" onClick={() => setPage("about")}>The model &amp; metrics</button></li>
             <li><button className="hover:text-terra-ink" onClick={() => setPage("privacy")}>Privacy &amp; HIPAA</button></li>
+            <li><a className="hover:text-terra-ink" href="https://github.com/SpandanChavan/brain-tumor-profiler" target="_blank" rel="noopener noreferrer">Source code on GitHub ↗</a></li>
           </ul>
         </div>
         <div>

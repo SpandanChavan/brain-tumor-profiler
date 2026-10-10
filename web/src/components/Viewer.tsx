@@ -52,7 +52,11 @@ async function buildOverlays(res: Result, base: NVImage): Promise<Overlays> {
   return { mask, contour, unc, compare };
 }
 
-export default function Viewer({ result, onCanvas }: { result: Result; onCanvas?: (c: HTMLCanvasElement | null) => void }) {
+/** Snapshot of the current view. WebGL clears its buffer after compositing, so a plain
+ *  canvas.toDataURL() is blank: redraw and read in the same task. */
+export type Capture = (type?: "image/png" | "image/jpeg") => string | null;
+
+export default function Viewer({ result, onCanvas }: { result: Result; onCanvas?: (capture: Capture | null) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const nvRef = useRef<Niivue | null>(null);
   const overlays = useRef<Overlays | null>(null);
@@ -79,7 +83,12 @@ export default function Viewer({ result, onCanvas }: { result: Result; onCanvas?
       const Z = useStore.getState().result?.profile.n_slices;
       if (frac && Z) useStore.getState().setSlice(Math.min(Z - 1, Math.max(0, Math.floor(frac[2] * Z))));
     };
-    onCanvas?.(canvasRef.current);
+    onCanvas?.((type = "image/png") => {
+      const c = canvasRef.current;
+      if (!c || !nvRef.current) return null;
+      nvRef.current.drawScene();
+      return c.toDataURL(type, 0.88);
+    });
     return () => { nv.cleanup?.(); nvRef.current = null; onCanvas?.(null); };
   }, [onCanvas]);
 

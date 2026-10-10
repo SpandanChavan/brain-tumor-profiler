@@ -26,7 +26,9 @@ class Settings:
     rate_limit_per_minute: int = int(os.environ.get("BTP_RATE_LIMIT", "10"))   # FR-S6
     result_ttl_seconds: int = int(os.environ.get("BTP_RESULT_TTL", "600"))     # SR-15
     max_upload_bytes: int = 200 * 1024 * 1024
-    threads: int = int(os.environ.get("BTP_THREADS", "0")) or (os.cpu_count() or 2)
+    # None = let ONNX Runtime choose (physical cores). Forcing os.cpu_count() oversubscribed
+    # hyperthreads / efficiency cores and made inference ~30x slower (0.7 s -> 21.5 s).
+    threads: int | None = int(os.environ["BTP_THREADS"]) if os.environ.get("BTP_THREADS") else None
 
 
 settings = Settings()

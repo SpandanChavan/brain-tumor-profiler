@@ -38,8 +38,11 @@ test("consent gate blocks analysis until ticked (PR-5)", async ({ page }) => {
 test("server mode: sample → viewer → profile → layers → exports → delete", async ({ page }) => {
   await start(page);
   await page.getByRole("checkbox").first().check();
+  // the server copy is deleted as soon as the result has been copied into the browser
+  const serverDelete = page.waitForRequest((r) => r.method() === "DELETE" && r.url().includes("/v1/results/"));
   await page.getByRole("button", { name: /synthetic 1/ }).click();
   await expectOutcome(page);
+  await serverDelete;
   await expect(page.getByText("server · in memory")).toBeVisible();
   await expect(page.getByText("Agreement with the expert outline")).toBeVisible();
   await expect(page.getByText("Loading scan…")).toBeHidden();
@@ -56,10 +59,8 @@ test("server mode: sample → viewer → profile → layers → exports → dele
   const [mask] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /^Mask$/ }).click()]);
   expect(mask.suggestedFilename()).toBe("tumor_mask.nii.gz");
 
-  // delete now → DELETE request + back to start
-  const del = page.waitForRequest((r) => r.method() === "DELETE" && r.url().includes("/v1/results/"));
+  // delete now → back to start (the in-browser copy is released)
   await page.getByRole("button", { name: /Delete my data now/ }).click();
-  await del;
   await expect(page.getByText("Find and profile brain tumors")).toBeVisible();
 });
 
